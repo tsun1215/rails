@@ -304,9 +304,9 @@ module ActiveRecord
       #   # creates avatar_attributes= and posts_attributes=
       #   accepts_nested_attributes_for :avatar, :posts, allow_destroy: true
       def accepts_nested_attributes_for(*attr_names)
-        options = { :allow_destroy => false, :update_only => false }
+        options = { :allow_destroy => false, :update_only => false, :index_errors => false }
         options.update(attr_names.extract_options!)
-        options.assert_valid_keys(:allow_destroy, :reject_if, :limit, :update_only)
+        options.assert_valid_keys(:allow_destroy, :reject_if, :limit, :update_only, :index_errors)
         options[:reject_if] = REJECT_ALL_BLANK_PROC if options[:reject_if] == :all_blank
 
         attr_names.each do |association_name|
