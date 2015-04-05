@@ -10,12 +10,3 @@ class Bird < ActiveRecord::Base
     throw(:abort)
   end
 end
-
-class IndexedBird < Bird
-  def pedantic_pirate_id=(x)
-    self.pirate_id=x
-  end
-  def pedantic_pirate_id
-    self.pirate_id
-  end
-end

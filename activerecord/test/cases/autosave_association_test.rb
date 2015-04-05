@@ -402,6 +402,27 @@ class TestDefaultAutosaveAssociationOnAHasManyAssociationWithAcceptsNestedAttrib
     assert_not_equal ["is not a number"], guitar.errors["tuning_pegs.pitch"]
   end
 
+  def test_errors_should_be_indexed_when_global_flag_is_set
+    old_attribute_config = ActiveRecord::Base.index_nested_attribute_errors
+    ActiveRecord::Base.index_nested_attribute_errors = true
+
+    molecule = Molecule.new
+    valid_electron = Electron.new(name: 'electron')
+    invalid_electron = Electron.new
+
+    molecule.electrons = [valid_electron, invalid_electron]
+
+    assert_not invalid_electron.valid?
+    assert valid_electron.valid?
+    assert_not molecule.valid?
+    assert_equal ["can't be blank"], molecule.errors["electrons[1].name"]
+    assert_not_equal ["can't be blank"], molecule.errors["electrons.name"]
+  ensure
+    ActiveRecord::Base.index_nested_attribute_errors = old_attribute_config
+  end
+
+
+
   def test_valid_adding_with_nested_attributes
     molecule = Molecule.new
     valid_electron = Electron.new(name: 'electron')
@@ -1326,21 +1347,6 @@ module AutosaveAssociationOnACollectionAssociationTests
     I18n.backend = I18n::Backend::Simple.new
   end
 
-  def test_errors_should_be_indexed_when_passed_as_array
-    I18n.backend.store_translations(:en, activerecord: {errors: { models:
-      { @associated_model_name_indexed.to_s.to_sym => { blank: "cannot be blank" } }
-    }})
-
-    @pedantic_pirate.send(@association_name_indexed).build(name: '')
-
-    assert !@pedantic_pirate.valid?
-    assert_equal ["cannot be blank"], @pedantic_pirate.errors["#{@association_name}[0].name"]
-    assert_equal ["#{@association_name_indexed.to_s.humanize} name cannot be blank"], @pedantic_pirate.errors.full_messages
-    assert @pedantic_pirate.errors[@association_name_indexed].empty?
-  ensure
-    I18n.backend = I18n::Backend::Simple.new
-  end
-
   def test_should_merge_errors_on_the_associated_models_onto_the_parent_even_if_it_is_not_valid
     @pirate.send(@association_name).each { |child| child.name = '' }
     @pirate.catchphrase = nil
@@ -1452,11 +1458,8 @@ class TestAutosaveAssociationOnAHasManyAssociation < ActiveRecord::TestCase
     super
     @association_name = :birds
     @associated_model_name = :bird
-    @association_name_indexed = :indexed_birds
-    @associated_model_name_indexed = :indexed_bird
 
     @pirate = Pirate.create(:catchphrase => "Don' botharrr talkin' like one, savvy?")
-    @pedantic_pirate = PedanticPirate.create(:catchphrase => "Don' botharrr talkin' like one, savvy?")
     @child_1 = @pirate.birds.create(:name => 'Posideons Killer')
     @child_2 = @pirate.birds.create(:name => 'Killer bandita Dionne')
   end

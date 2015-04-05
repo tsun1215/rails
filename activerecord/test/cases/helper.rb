@@ -21,6 +21,9 @@ Thread.abort_on_exception = true
 # Show backtraces for deprecated behavior for quicker cleanup.
 ActiveSupport::Deprecation.debug = true
 
+# Don't add indeces to nested attribute errors
+ActiveRecord::Base.index_nested_attribute_errors = false
+
 # Disable available locale checks to avoid warnings running the test suite.
 I18n.enforce_available_locales = false
 

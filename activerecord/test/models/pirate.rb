@@ -90,15 +90,3 @@ class FamousPirate < ActiveRecord::Base
   has_many :famous_ships
   validates_presence_of :catchphrase, on: :conference
 end
-
-class PedanticPirate < Pirate
-  has_and_belongs_to_many :parrots, -> { order('parrots.id ASC') }, :validate => true
-  has_many :birds, -> { order('birds.id ASC') }
-  accepts_nested_attributes_for :parrots, :birds, :allow_destroy => true, :reject_if => proc(&:empty?), index_errors: true
-  def indexed_birds=(x)
-    self.birds=x
-  end
-  def indexed_birds
-    self.birds
-  end
-end

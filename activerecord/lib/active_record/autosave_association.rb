@@ -126,6 +126,7 @@ module ActiveRecord
   #
   #   Comment.find_by(id: id).nil? # => true
 
+
   module AutosaveAssociation
     extend ActiveSupport::Concern
 
@@ -141,6 +142,7 @@ module ActiveRecord
 
     included do
       Associations::Builder::Association.extensions << AssociationBuilderExtension
+      mattr_accessor :index_nested_attribute_errors, instance_writer: false
     end
 
     module ClassMethods
@@ -331,7 +333,7 @@ module ActiveRecord
           if reflection.options[:autosave]
             record.errors.each do |attribute, message|
               options = self.nested_attributes_options[reflection.name] 
-              if index.nil? or options.nil? or not options[:index_errors] or not ActiveRecord::Base.index_nested_attributes_errors
+              if index.nil? or options.nil? or (not options[:index_errors] and not ActiveRecord::Base.index_nested_attribute_errors)
                 attribute = "#{reflection.name}.#{attribute}"
               else
                 attribute = "#{reflection.name}[#{index}].#{attribute}"
