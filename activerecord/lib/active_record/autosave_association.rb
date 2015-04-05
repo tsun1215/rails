@@ -333,7 +333,9 @@ module ActiveRecord
           if reflection.options[:autosave]
             record.errors.each do |attribute, message|
               options = self.nested_attributes_options[reflection.name] 
-              if index.nil? or options.nil? or (not options[:index_errors] and not ActiveRecord::Base.index_nested_attribute_errors)
+              if ActiveRecord::Base.index_nested_attribute_errors 
+                attribute = "#{reflection.name}[#{index}].#{attribute}"
+              elsif index.nil? or options.nil? or not options[:index_errors]
                 attribute = "#{reflection.name}.#{attribute}"
               else
                 attribute = "#{reflection.name}[#{index}].#{attribute}"
