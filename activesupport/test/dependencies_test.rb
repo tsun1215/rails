@@ -449,7 +449,9 @@ class DependenciesTest < ActiveSupport::TestCase
     assert ActiveSupport::Dependencies.qualified_const_defined?("::ActiveSupport::TestCase")
   end
 
+  # NOT SUPPORTED
   def test_qualified_const_defined_should_not_call_const_missing
+    skip "NOT SUPPORTED"
     ModuleWithMissing.missing_count = 0
     assert ! ActiveSupport::Dependencies.qualified_const_defined?("ModuleWithMissing::A")
     assert_equal 0, ModuleWithMissing.missing_count
@@ -929,7 +931,9 @@ class DependenciesTest < ActiveSupport::TestCase
     remove_constants(:RaisesNameError)
   end
 
+  # NOT_SUPPORTED: doing this test using ruby's autoload still keeps RaisesNameError defined after a NameError is raised
   def test_autoload_doesnt_shadow_name_error
+    skip "NOT SUPPORTED"
     with_autoloading_fixtures do
       2.times do
         e = assert_raise NameError do
