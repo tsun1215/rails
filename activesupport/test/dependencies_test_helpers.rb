@@ -7,6 +7,8 @@ module DependenciesTestHelpers
     $LOAD_PATH.unshift(parent_dir) unless $LOAD_PATH.include?(parent_dir)
     prior_autoload_paths = ActiveSupport::Dependencies.autoload_paths
     ActiveSupport::Dependencies.autoload_paths = from.collect { |f| "#{this_dir}/#{f}" }
+    # puts ActiveSupport::Dependencies.autoload_paths
+    ActiveSupport::Dependencies.autoload_modules
     yield
   ensure
     $LOAD_PATH.replace(path_copy)

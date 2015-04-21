@@ -160,6 +160,80 @@ module ActiveSupport #:nodoc:
     mattr_accessor :constant_watch_stack
     self.constant_watch_stack = WatchStack.new
 
+    def autoload_modules
+      nested_autoloads = {}
+      autoload_paths.each do |dir|
+        if Dir.exists? dir
+          Dir.glob(File.join(dir, "**", "*.rb")) do |path|
+            loadable_constants_for_path(path.sub(/\.rb\z/, '')).each do |const|
+              if const.include? "::" # Nested or inline
+                puts "Found nested/inline: #{const}"
+                arr = const.split("::", 2)
+                nested_autoloads[arr[0]] = [] unless nested_autoloads.has_key?(arr[0])
+                nested_autoloads[arr[0]] << {mod_name: arr[1], path: path}
+                temp_file_autoloader.add_autoload(const, path)
+              else
+                puts "Installing autoload for #{const} from #{path}"
+                Object.autoload(const, path)
+              end
+            end
+          end
+        end
+      end
+      # Create autoloads for artificial modules
+      nested_autoloads.each do |key, value|
+        puts key
+        if !Object.autoload?(key)
+          puts "Wasn't able to load #{key}"
+          Object.autoload(key, temp_file_autoloader.get_load_path(key))
+          puts "Now accessable at: #{Object.autoload? key}"
+        end
+      end
+    end
+
+
+    # TODO: Autoloader that uses temporary (executable) files to deal with autoloading
+    class TempFileAutoloader
+      require "tempfile"
+      attr_reader :tf_hash
+      attr_reader :pending_autoloads
+
+      def initialize()
+        @tf_hash = {}
+        @pending_autoloads = []
+      end
+
+      def get_load_path(key)
+        @tf_hash[key]
+      end
+
+      def add_autoload(const_nesting, path)
+        arr = const_nesting.split("::", 2)
+        if @tf_hash.has_key?(arr[0]) 
+          file = File.open(@tf_hash[arr[0]], "a") 
+        else 
+          file = Tempfile.new(["railsloader", '.rb']) 
+          file.write("module #{arr[0]}\nend\n")
+        end
+        pending_autoloads.push const_nesting
+        puts "#{arr[0]} at #{file.path}"
+        @tf_hash[arr[0]] = file.path unless @tf_hash.has_key?(arr[0])
+        file.write("puts \"Installing autoload for (#{arr[0]}) #{arr[1].split("::")[0]}, from #{path}\"\n")
+        file.write("#{arr[0]}.autoload(\"#{arr[1].split("::")[0]}\", \"#{path}\")\n")
+        file.write("puts \"Removing #{const_nesting} from pending_autoloads\"\n")
+        file.write("ActiveSupport::Dependencies.temp_file_autoloader.pending_autoloads.delete(\"#{const_nesting}\")\n")
+        file.close
+      end
+
+      def load_submodules(parent)
+        Kernel.load(@tf_hash[parent])
+      end
+
+    end
+
+    mattr_accessor :temp_file_autoloader
+    self.temp_file_autoloader = TempFileAutoloader.new
+
     # Module includes this module.
     module ModuleConstMissing #:nodoc:
       def self.append_features(base)
@@ -180,8 +254,9 @@ module ActiveSupport #:nodoc:
       end
 
       def const_missing(const_name)
+        puts "Missing constant: #{const_name} (#{self})"
         from_mod = anonymous? ? guess_for_anonymous(const_name) : self
-        Dependencies.load_missing_constant(from_mod, const_name)
+        # Dependencies.load_missing_constant(from_mod, const_name)
       end
 
       # We assume that the name of the module reflects the nesting
@@ -299,7 +374,7 @@ module ActiveSupport #:nodoc:
 
     def hook!
       Object.class_eval { include Loadable }
-      Module.class_eval { include ModuleConstMissing }
+      # Module.class_eval { include ModuleConstMissing }
       Exception.class_eval { include Blamable }
     end
 
@@ -607,8 +682,11 @@ module ActiveSupport #:nodoc:
     def autoloaded?(desc)
       return false if desc.is_a?(Module) && desc.anonymous?
       name = to_constant_name desc
-      return false unless qualified_const_defined?(name)
-      return autoloaded_constants.include?(name)
+      puts name
+      # Short-circuit b/c Object.const_defined autoloads the module
+      return false if temp_file_autoloader.pending_autoloads.include?(name)
+      return !name.split("::")[0..-2].reduce(Object){|acc, m| acc.const_get(m)}.autoload?(name.split("::")[-1]) && qualified_const_defined?(name)
+      # return autoloaded_constants.include?(name)
     end
 
     # Will the provided constant descriptor be unloaded?
