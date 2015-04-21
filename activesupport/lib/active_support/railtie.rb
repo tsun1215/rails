@@ -47,5 +47,9 @@ module ActiveSupport
         ActiveSupport.send(k, v) if ActiveSupport.respond_to? k
       end
     end
+    # TODO: Hopefully this calls the methods we want to
+    initializer "active_support.install_autoloads" do |app|
+      ActiveSupport::Dependencies.install_autoloads
+    end
   end
 end
