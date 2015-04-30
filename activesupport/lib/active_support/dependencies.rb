@@ -160,155 +160,141 @@ module ActiveSupport #:nodoc:
     mattr_accessor :constant_watch_stack
     self.constant_watch_stack = WatchStack.new
 
+
+    # Autoloads all modules in autoload_paths. For modules with an explicit 
+    # class name and no nested classes across other files, the module is 
+    # autoloaded with Ruby's built-in autoload functionality. If there are 
+    # nested files, a temporary file with the correct nesting is created to 
+    # facilitate the autoloading of all files within that structure.
+    # 
+    # For example, in test/autoloading_fixtures, the constants nested under a/ 
+    # generates the file:
+    # 
+    # module A
+    #   module C
+    #     autoload :D, "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/c/d.rb"
+    #     module E
+    #       autoload :F, "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/c/e/f.rb"
+    #     end
+    #   end
+    #   autoload :B, "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/b.rb"
+    # end
+    # 
     def autoload_modules
-      const_hashes = {}
-      autoload_paths.each do |dir|
+      const_nesting = generate_const_nesting(autoload_paths)
+      temp_file_autoloader.add_autoload(const_nesting)
+    end
+
+    # Generates a hash of of the given set of paths.
+    # 
+    # For example, in test/autoloading_fixture, the constants nested under a/
+    # generates the hash:
+    # 
+    # "A"=> {
+    #   :path=>nil,
+    #   "C"=> {
+    #     :path=>nil,
+    #     "D"=> {
+    #       :path=>
+    #         "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/c/d.rb"
+    #     },
+    #     "E"=> {
+    #       path=>nil,
+    #       "F"=> {
+    #         :path=>
+    #           "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/c/e/f.rb"
+    #       }
+    #     }
+    #   },
+    #   "B"=> {
+    #     :path=>
+    #       "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/b.rb"
+    #   }
+    # }
+    # 
+    def generate_const_nesting(paths)
+      nesting = {}
+      paths.each do |dir|
         if Dir.exists? dir
+          # Search each directory in paths to load for constants
           Dir.glob(File.join(dir, "**", "*.rb")) do |path|
             loadable_constants_for_path(path.sub(/\.rb\z/, '')).each do |const|
-                arr = const.split("::")
-                this_hash = const_hashes
+                arr = const.split("::") # Splits A::B::C => [A,B,C]
+
+                # Sets the path of every fully-qualified constant in the list
+                nesting_level = nesting
                 arr.each do |x|
-                  this_hash[x] = {} if this_hash[x].nil?
-                  this_hash[:path] = nil unless this_hash.has_key?(:path)
-                  this_hash = this_hash[x]
+                  nesting_level[x] = {} if nesting_level[x].nil?
+                  nesting_level[:path] = nil unless nesting_level.has_key?(:path)
+                  nesting_level = nesting_level[x]
                 end
-                this_hash[:path] = path
+                nesting_level[:path] = path
             end
           end
         end
       end
-      const_hashes.delete(:path)
-      temp_file_autoloader.add_autoload(const_hashes)
-#       pp(const_hashes)
-#       raise "hell"
-# 
-#       # Create autoloads for artificial modules
-#       puts nested_autoloads
-#       nested_autoloads.each do |key, value|
-#         if value.size > 1
-#           puts "Nested constant #{key}"
-#           has_base = value.inject(false) {|res, elem| res |= (elem[:mod_name].nil?)}
-#           value.sort_by! {|elem| elem[:mod_name].nil? ? 0 : 1}
-#           value.each do |nested|
-#             temp_file_autoloader.add_autoload(nested[:qualified_name], nested[:path], has_base)
-#           end
-#           # puts ""
-#           # puts File.read(temp_file_autoloader.get_load_path(key))
-#           # puts ""
-#           Object.autoload(key, temp_file_autoloader.get_load_path(key))
-#         else
-#           puts "Normal constant #{key} #{value[0][:qualified_name]}"
-#           Object.autoload(key, value[0][:path])
-#         end
-#         # puts key
-#         # if !Object.autoload?(key)
-#         #   puts "Wasn't able to load #{key}"
-#         #   Object.autoload(key, temp_file_autoloader.get_load_path(key))
-#         #   puts "Now accessable at: #{Object.autoload? key}"
-#         # end
-#       end
+      # Removes the extra :path added at the top level
+      nesting.delete(:path)
+      nesting
     end
 
-
-    # TODO: Autoloader that uses temporary (executable) files to deal with autoloading
+    # The TempFileAutoloader takes care of constants that require temporary
+    # files to be installed using Ruby's autoloader
     class TempFileAutoloader
-      require "tempfile"
-      attr_reader :tf_hash
+      require "tempfile"  # Uses temp file module
       attr_reader :pending_autoloads
 
       def initialize()
-        @tf_hash = {}
         @pending_autoloads = []
       end
 
-      def get_load_path(key)
-        @tf_hash[key]
-      end
-
+      # Generates and adds the autoloads from a constant hash
       def add_autoload(const_hash)
         const_hash.each do |key, value|
+          # Pop path to constant
           path = value.delete(:path)
-          if !value.empty?
-            file = Tempfile.new(["railsloader",".rb"])
-            file.write("module #{key}\n")
-            add_autoload_recursive(value, file)
-            file.write("end\n\n\n")
-            file.write("Kernel.load \"#{path}\"\n\n\n") unless path.nil?
-            file.close()
-            Object.autoload(key.to_sym, file.path)
-            puts "autoloading nested #{key}"
-          else
+
+          if value.empty?
+            # No temporary file necessary to autoload, directly install autoload
             Object.autoload(key.to_sym, path)
-            puts "autoloading non-nested #{key}"
+          else
+            # Temporary file necessary to autoload
+            file = Tempfile.new(["railsloader",".rb"])
+            # Write the top level module and recurse inward
+            file.write("module #{key}\n")
+            add_autoload_recursive(value, file, key)
+            file.write("end\n")
+            # Load top level module if there exists a file for it
+            file.write("Kernel.load \"#{path}\"\n") unless path.nil?
+            file.close()
+            # Install autoload for the top-level module with the tempfile
+            Object.autoload(key.to_sym, file.path)
           end
         end
       end
 
-      def add_autoload_recursive(const_hash, file)
+      # Recursively writes the structure of the temporary file
+      def add_autoload_recursive(const_hash, file, qualified_name)
         const_hash.each do |key, value|
-          path = value.delete(:path)
+          qualified_name = "#{qualified_name}::#{key}"
+          path = value.delete(:path)    
           if !path.nil?
+            @pending_autoloads << qualified_name
             file.write("autoload :#{key}, \"#{path}\"\n")
+            file.write("ActiveSupport::Dependencies.temp_file_autoloader" +
+                       ".pending_autoloads.delete(\"#{qualified_name}\")\n")
           else
             file.write("module #{key}\n")
-            add_autoload_recursive(value, file)
+            add_autoload_recursive(value, file, qualified_name)
             file.write("end\n\n")
           end
         end
       end
-
-      def load_submodules(parent)
-        Kernel.load(@tf_hash[parent])
-      end
-
     end
 
     mattr_accessor :temp_file_autoloader
     self.temp_file_autoloader = TempFileAutoloader.new
 
-    # Module includes this module.
-    module ModuleConstMissing #:nodoc:
-      def self.append_features(base)
-        base.class_eval do
-          # Emulate #exclude via an ivar
-          return if defined?(@_const_missing) && @_const_missing
-          @_const_missing = instance_method(:const_missing)
-          remove_method(:const_missing)
-        end
-        super
-      end
-
-      def self.exclude_from(base)
-        base.class_eval do
-          define_method :const_missing, @_const_missing
-          @_const_missing = nil
-        end
-      end
-
-      def const_missing(const_name)
-        puts "Missing constant: #{const_name} (#{self})"
-        from_mod = anonymous? ? guess_for_anonymous(const_name) : self
-        # Dependencies.load_missing_constant(from_mod, const_name)
-      end
-
-      # We assume that the name of the module reflects the nesting
-      # (unless it can be proven that is not the case) and the path to the file
-      # that defines the constant. Anonymous modules cannot follow these
-      # conventions and therefore we assume that the user wants to refer to a
-      # top-level constant.
-      def guess_for_anonymous(const_name)
-        if Object.const_defined?(const_name)
-          raise NameError.new "#{const_name} cannot be autoloaded from an anonymous class or module", const_name
-        else
-          Object
-        end
-      end
-
-      def unloadable(const_desc = self)
-        super(const_desc)
-      end
-    end
 
     # Object includes this module.
     module Loadable #:nodoc:
@@ -412,7 +398,7 @@ module ActiveSupport #:nodoc:
     end
 
     def unhook!
-      ModuleConstMissing.exclude_from(Module)
+      # ModuleConstMissing.exclude_from(Module)
       Loadable.exclude_from(Object)
     end
 
@@ -534,19 +520,6 @@ module ActiveSupport #:nodoc:
       autoload_once_paths.any? { |base| path.starts_with? base.to_s }
     end
 
-    # Attempt to autoload the provided module name by searching for a directory
-    # matching the expected path suffix. If found, the module is created and
-    # assigned to +into+'s constants with the name +const_name+. Provided that
-    # the directory was loaded from a reloadable base path, it is added to the
-    # set of constants that are to be unloaded.
-    def autoload_module!(into, const_name, qualified_name, path_suffix)
-      return nil unless base_path = autoloadable_module?(path_suffix)
-      mod = Module.new
-      into.const_set const_name, mod
-      autoloaded_constants << qualified_name unless autoload_once_paths.include?(base_path)
-      mod
-    end
-
     # Load the file at the provided path. +const_paths+ is a set of qualified
     # constant names. When loading the file, Dependencies will watch for the
     # addition of these constants. Each that is defined will be marked as
@@ -571,76 +544,25 @@ module ActiveSupport #:nodoc:
       result
     end
 
+    # Attempt to autoload the provided module name by searching for a directory
+    # matching the expected path suffix. If found, the module is created and
+    # assigned to +into+'s constants with the name +const_name+. Provided that
+    # the directory was loaded from a reloadable base path, it is added to the
+    # set of constants that are to be unloaded.
+    def autoload_module!(into, const_name, qualified_name, path_suffix)
+      return nil unless base_path = autoloadable_module?(path_suffix)
+      mod = Module.new
+      into.const_set const_name, mod
+      autoloaded_constants << qualified_name unless autoload_once_paths.include?(base_path)
+      mod
+    end
+
     # Returns the constant path for the provided parent and constant name.
     def qualified_name_for(mod, name)
       mod_name = to_constant_name mod
       mod_name == "Object" ? name.to_s : "#{mod_name}::#{name}"
     end
 
-    # Load the constant named +const_name+ which is missing from +from_mod+. If
-    # it is not possible to load the constant into from_mod, try its parent
-    # module using +const_missing+.
-    def load_missing_constant(from_mod, const_name)
-      log_call from_mod, const_name
-
-      unless qualified_const_defined?(from_mod.name) && Inflector.constantize(from_mod.name).equal?(from_mod)
-        raise ArgumentError, "A copy of #{from_mod} has been removed from the module tree but is still active!"
-      end
-
-      qualified_name = qualified_name_for from_mod, const_name
-      path_suffix = qualified_name.underscore
-
-      file_path = search_for_file(path_suffix)
-
-      if file_path
-        expanded = File.expand_path(file_path)
-        expanded.sub!(/\.rb\z/, '')
-
-        if loading.include?(expanded)
-          raise "Circular dependency detected while autoloading constant #{qualified_name}"
-        else
-          require_or_load(expanded, qualified_name)
-          raise LoadError, "Unable to autoload constant #{qualified_name}, expected #{file_path} to define it" unless from_mod.const_defined?(const_name, false)
-          return from_mod.const_get(const_name)
-        end
-      elsif mod = autoload_module!(from_mod, const_name, qualified_name, path_suffix)
-        return mod
-      elsif (parent = from_mod.parent) && parent != from_mod &&
-            ! from_mod.parents.any? { |p| p.const_defined?(const_name, false) }
-        # If our parents do not have a constant named +const_name+ then we are free
-        # to attempt to load upwards. If they do have such a constant, then this
-        # const_missing must be due to from_mod::const_name, which should not
-        # return constants from from_mod's parents.
-        begin
-          # Since Ruby does not pass the nesting at the point the unknown
-          # constant triggered the callback we cannot fully emulate constant
-          # name lookup and need to make a trade-off: we are going to assume
-          # that the nesting in the body of Foo::Bar is [Foo::Bar, Foo] even
-          # though it might not be. Counterexamples are
-          #
-          #   class Foo::Bar
-          #     Module.nesting # => [Foo::Bar]
-          #   end
-          #
-          # or
-          #
-          #   module M::N
-          #     module S::T
-          #       Module.nesting # => [S::T, M::N]
-          #     end
-          #   end
-          #
-          # for example.
-          return parent.const_missing(const_name)
-        rescue NameError => e
-          raise unless e.missing_name? qualified_name_for(parent, const_name)
-        end
-      end
-
-      name_error = NameError.new("uninitialized constant #{qualified_name}", const_name)
-      name_error.set_backtrace(caller.reject {|l| l.starts_with? __FILE__ })
-      raise name_error
-    end
 
     # Remove the constants that have been autoloaded, and those that have been
     # marked for unloading. Before each constant is removed a callback is sent
@@ -715,7 +637,6 @@ module ActiveSupport #:nodoc:
     def autoloaded?(desc)
       return false if desc.is_a?(Module) && desc.anonymous?
       name = to_constant_name desc
-      puts name
       # Short-circuit b/c Object.const_defined autoloads the module
       return false if temp_file_autoloader.pending_autoloads.include?(name)
       return !name.split("::")[0..-2].reduce(Object){|acc, m| acc.const_get(m)}.autoload?(name.split("::")[-1]) && qualified_const_defined?(name)
