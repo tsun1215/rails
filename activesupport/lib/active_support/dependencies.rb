@@ -285,7 +285,6 @@ module ActiveSupport #:nodoc:
             # Load top level module if there exists a file for it
             file.close()
             @tempfiles << file
-            puts "Install AL for: #{key}"
             # Install autoload for the top-level module with the tempfile
             Object.autoload(key.to_sym, file.path)
           # end
