@@ -253,7 +253,7 @@ module ActiveSupport #:nodoc:
         const_hash.each do |key, value|
           # Pop path to constant
           path = value.delete(:path)
-
+          ActiveSupport::Dependencies.unloadable(key)
           if value.empty?
             # No temporary file necessary to autoload, directly install autoload
             Object.autoload(key.to_sym, path)
@@ -261,11 +261,20 @@ module ActiveSupport #:nodoc:
             # Temporary file necessary to autoload
             file = Tempfile.new(["railsloader",".rb"])
             # Write the top level module and recurse inward
-            file.write("module #{key}\n")
-            add_autoload_recursive(value, file, key)
-            file.write("end\n")
-            # Load top level module if there exists a file for it
             file.write("Kernel.load \"#{path}\"\n") unless path.nil?
+            file.write("begin\n")
+            file.write("module #{key}\n")
+            add_autoload_recursive(value, file, key, "module")
+            file.write("end\n")
+            
+            # Hacky way to guess between fake module or fake class
+            file.write("rescue TypeError => e\n")
+            file.write("class #{key}\n")
+            add_autoload_recursive(value, file, key, "class")
+            file.write("end\n")
+            file.write("end\n")
+
+            # Load top level module if there exists a file for it
             file.close()
             # Install autoload for the top-level module with the tempfile
             Object.autoload(key.to_sym, file.path)
@@ -274,18 +283,20 @@ module ActiveSupport #:nodoc:
       end
 
       # Recursively writes the structure of the temporary file
-      def add_autoload_recursive(const_hash, file, qualified_name)
+      def add_autoload_recursive(const_hash, file, qualified_name, type)
         const_hash.each do |key, value|
+          next if key == :path
           qualified_name = "#{qualified_name}::#{key}"
-          path = value.delete(:path)    
+          path = value[:path]    
           if !path.nil?
             @pending_autoloads << qualified_name
             file.write("autoload :#{key}, \"#{path}\"\n")
             file.write("ActiveSupport::Dependencies.temp_file_autoloader" +
                        ".pending_autoloads.delete(\"#{qualified_name}\")\n")
+            ActiveSupport::Dependencies.unloadable(qualified_name)
           else
-            file.write("module #{key}\n")
-            add_autoload_recursive(value, file, qualified_name)
+            file.write("#{type} #{key}\n")
+            add_autoload_recursive(value, file, qualified_name, type)
             file.write("end\n\n")
           end
         end
@@ -351,7 +362,7 @@ module ActiveSupport #:nodoc:
       #
       # Returns +true+ if the constant was not previously marked for unloading,
       # +false+ otherwise.
-      def unloadable(const_desc)
+      def unloadable(const_desc=self)
         Dependencies.mark_for_unload const_desc
       end
 
@@ -639,7 +650,11 @@ module ActiveSupport #:nodoc:
       name = to_constant_name desc
       # Short-circuit b/c Object.const_defined autoloads the module
       return false if temp_file_autoloader.pending_autoloads.include?(name)
-      return !name.split("::")[0..-2].reduce(Object){|acc, m| acc.const_get(m)}.autoload?(name.split("::")[-1]) && qualified_const_defined?(name)
+      begin
+        return !name.split("::")[0..-2].reduce(Object){|acc, m| acc.const_get(m)}.autoload?(name.split("::")[-1]) && qualified_const_defined?(name)
+      rescue NameError
+        return false
+      end
       # return autoloaded_constants.include?(name)
     end
 
