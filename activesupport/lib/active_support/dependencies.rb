@@ -266,7 +266,8 @@ module ActiveSupport #:nodoc:
             file = Tempfile.new(["railsloader",".rb"])
             # Write the top level module and recurse inward
             unless path.nil?
-              autoload_paths << path
+              @autoload_paths << path
+              @pending_autoloads << key
               file.write("Kernel.load \"#{path}\"\n") unless path.nil?
             end
             file.write("begin\n")
@@ -284,6 +285,7 @@ module ActiveSupport #:nodoc:
             # Load top level module if there exists a file for it
             file.close()
             @tempfiles << file
+            puts "Install AL for: #{key}"
             # Install autoload for the top-level module with the tempfile
             Object.autoload(key.to_sym, file.path)
           # end
@@ -312,9 +314,12 @@ module ActiveSupport #:nodoc:
       end
 
       def clear
-        # pending_autoloads.each{|al| puts autoload?(al)}
         @autoload_paths.each { |path| $LOADED_FEATURES.delete(path) }
-        # @tempfiles.each { |file| file.unlink }
+        @pending_autoloads.each{ |const| Object.send :remove_const, const.split("::")[0] if Object.const_defined?(const.split("::")[0].to_sym)}
+        @tempfiles.each { |file| file.unlink }
+        @tempfiles.clear
+        @autoload_paths.clear
+        @pending_autoloads.clear
       end
     end
 
@@ -565,6 +570,7 @@ module ActiveSupport #:nodoc:
       newly_defined_paths = new_constants_in(*parent_paths) do
         result = Kernel.load path
       end
+      const_paths.each {|path| temp_file_autoloader.pending_autoloads.delete path}
 
       autoloaded_constants.concat newly_defined_paths unless load_once_path?(path)
       autoloaded_constants.uniq!
