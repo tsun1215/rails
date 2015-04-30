@@ -161,43 +161,53 @@ module ActiveSupport #:nodoc:
     self.constant_watch_stack = WatchStack.new
 
     def autoload_modules
-      nested_autoloads = {}
+      const_hashes = {}
       autoload_paths.each do |dir|
         if Dir.exists? dir
           Dir.glob(File.join(dir, "**", "*.rb")) do |path|
             loadable_constants_for_path(path.sub(/\.rb\z/, '')).each do |const|
-                arr = const.split("::", 2)
-                nested_autoloads[arr[0]] = [] unless nested_autoloads.has_key?(arr[0])
-                nested_autoloads[arr[0]] << {mod_name: arr[1], path: path, qualified_name: const}
+                arr = const.split("::")
+                this_hash = const_hashes
+                arr.each do |x|
+                  this_hash[x] = {} if this_hash[x].nil?
+                  this_hash[:path] = nil unless this_hash.has_key?(:path)
+                  this_hash = this_hash[x]
+                end
+                this_hash[:path] = path
             end
           end
         end
       end
-
-      # Create autoloads for artificial modules
-      nested_autoloads.each do |key, value|
-        if value.size > 1
-          puts "Nested constant #{key}"
-          has_base = value.inject(false) {|res, elem| res |= (elem[:mod_name].nil?)}
-          value.sort_by! {|elem| elem[:mod_name].nil? ? 0 : 1}
-          value.each do |nested|
-            temp_file_autoloader.add_autoload(nested[:qualified_name], nested[:path], has_base)
-          end
-          # puts ""
-          # puts File.read(temp_file_autoloader.get_load_path(key))
-          # puts ""
-          Object.autoload(key, temp_file_autoloader.get_load_path(key))
-        else
-          puts "Normal constant #{key} #{value[0][:qualified_name]}"
-          Object.autoload(key, value[0][:path])
-        end
-        # puts key
-        # if !Object.autoload?(key)
-        #   puts "Wasn't able to load #{key}"
-        #   Object.autoload(key, temp_file_autoloader.get_load_path(key))
-        #   puts "Now accessable at: #{Object.autoload? key}"
-        # end
-      end
+      const_hashes.delete(:path)
+      temp_file_autoloader.add_autoload(const_hashes)
+#       pp(const_hashes)
+#       raise "hell"
+# 
+#       # Create autoloads for artificial modules
+#       puts nested_autoloads
+#       nested_autoloads.each do |key, value|
+#         if value.size > 1
+#           puts "Nested constant #{key}"
+#           has_base = value.inject(false) {|res, elem| res |= (elem[:mod_name].nil?)}
+#           value.sort_by! {|elem| elem[:mod_name].nil? ? 0 : 1}
+#           value.each do |nested|
+#             temp_file_autoloader.add_autoload(nested[:qualified_name], nested[:path], has_base)
+#           end
+#           # puts ""
+#           # puts File.read(temp_file_autoloader.get_load_path(key))
+#           # puts ""
+#           Object.autoload(key, temp_file_autoloader.get_load_path(key))
+#         else
+#           puts "Normal constant #{key} #{value[0][:qualified_name]}"
+#           Object.autoload(key, value[0][:path])
+#         end
+#         # puts key
+#         # if !Object.autoload?(key)
+#         #   puts "Wasn't able to load #{key}"
+#         #   Object.autoload(key, temp_file_autoloader.get_load_path(key))
+#         #   puts "Now accessable at: #{Object.autoload? key}"
+#         # end
+#       end
     end
 
 
@@ -216,27 +226,36 @@ module ActiveSupport #:nodoc:
         @tf_hash[key]
       end
 
-      def add_autoload(const_nesting, path, has_base)
-        arr = const_nesting.split("::", 2)
-        if @tf_hash.has_key?(arr[0]) 
-          file = File.open(@tf_hash[arr[0]], "a") 
-        else 
-          file = Tempfile.new(["railsloader", '.rb']) 
-          file.write("module #{arr[0]}\nend\n") unless has_base
+      def add_autoload(const_hash)
+        const_hash.each do |key, value|
+          path = value.delete(:path)
+          if !value.empty?
+            file = Tempfile.new(["railsloader",".rb"])
+            file.write("module #{key}\n")
+            add_autoload_recursive(value, file)
+            file.write("end\n\n\n")
+            file.write("Kernel.load \"#{path}\"\n\n\n") unless path.nil?
+            file.close()
+            Object.autoload(key.to_sym, file.path)
+            puts "autoloading nested #{key}"
+          else
+            Object.autoload(key.to_sym, path)
+            puts "autoloading non-nested #{key}"
+          end
         end
-        pending_autoloads.push const_nesting
-        puts "#{arr[0]} at #{file.path}"
-        @tf_hash[arr[0]] = file.path unless @tf_hash.has_key?(arr[0])
-        if arr.size == 2
-          file.write("puts \"Installing autoload for (#{arr[0]}) #{arr[1].split("::")[0]}, from #{path}\"\n")
-          file.write("#{arr[0]}.autoload(\"#{arr[1].split("::")[0]}\", \"#{path}\")\n")
-          file.write("puts \"Removing #{const_nesting} from pending_autoloads\"\n")
-          file.write("ActiveSupport::Dependencies.temp_file_autoloader.pending_autoloads.delete(\"#{const_nesting}\")\n")
-        else
-          file.write("puts \"Loading #{arr[0]} (Base module)\"\n")
-          file.write("Kernel.load(\"#{path}\")\n")
+      end
+
+      def add_autoload_recursive(const_hash, file)
+        const_hash.each do |key, value|
+          path = value.delete(:path)
+          if !path.nil?
+            file.write("autoload :#{key}, \"#{path}\"\n")
+          else
+            file.write("module #{key}\n")
+            add_autoload_recursive(value, file)
+            file.write("end\n\n")
+          end
         end
-        file.close
       end
 
       def load_submodules(parent)
