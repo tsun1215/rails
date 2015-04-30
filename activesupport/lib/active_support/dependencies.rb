@@ -243,9 +243,13 @@ module ActiveSupport #:nodoc:
     class TempFileAutoloader
       require "tempfile"  # Uses temp file module
       attr_reader :pending_autoloads
+      attr_reader :autoload_paths
+      attr_reader :tempfiles
 
       def initialize()
         @pending_autoloads = []
+        @autoload_paths = []
+        @tempfiles = []
       end
 
       # Generates and adds the autoloads from a constant hash
@@ -254,14 +258,17 @@ module ActiveSupport #:nodoc:
           # Pop path to constant
           path = value.delete(:path)
           ActiveSupport::Dependencies.unloadable(key)
-          if value.empty?
-            # No temporary file necessary to autoload, directly install autoload
-            Object.autoload(key.to_sym, path)
-          else
+          # if value.empty?
+          #   # No temporary file necessary to autoload, directly install autoload
+          #   Object.autoload(key.to_sym, path)
+          # else
             # Temporary file necessary to autoload
             file = Tempfile.new(["railsloader",".rb"])
             # Write the top level module and recurse inward
-            file.write("Kernel.load \"#{path}\"\n") unless path.nil?
+            unless path.nil?
+              autoload_paths << path
+              file.write("Kernel.load \"#{path}\"\n") unless path.nil?
+            end
             file.write("begin\n")
             file.write("module #{key}\n")
             add_autoload_recursive(value, file, key, "module")
@@ -276,9 +283,10 @@ module ActiveSupport #:nodoc:
 
             # Load top level module if there exists a file for it
             file.close()
+            @tempfiles << file
             # Install autoload for the top-level module with the tempfile
             Object.autoload(key.to_sym, file.path)
-          end
+          # end
         end
       end
 
@@ -294,12 +302,19 @@ module ActiveSupport #:nodoc:
             file.write("ActiveSupport::Dependencies.temp_file_autoloader" +
                        ".pending_autoloads.delete(\"#{qualified_name}\")\n")
             ActiveSupport::Dependencies.unloadable(qualified_name)
+            autoload_paths << path
           else
             file.write("#{type} #{key}\n")
             add_autoload_recursive(value, file, qualified_name, type)
             file.write("end\n\n")
           end
         end
+      end
+
+      def clear
+        # pending_autoloads.each{|al| puts autoload?(al)}
+        @autoload_paths.each { |path| $LOADED_FEATURES.delete(path) }
+        # @tempfiles.each { |file| file.unlink }
       end
     end
 
@@ -433,6 +448,8 @@ module ActiveSupport #:nodoc:
       loaded.clear
       loading.clear
       remove_unloadable_constants!
+      temp_file_autoloader.clear
+      autoload_modules
     end
 
     def require_or_load(file_name, const_path = nil)
