@@ -264,11 +264,10 @@ class DependenciesTest < ActiveSupport::TestCase
     remove_constants(:ClassFolder)
   end
 
-  # TODO:
+  # TODO: Figure out how/why this is supposed to work
   def test_nested_class_can_access_sibling
-    skip "Need to figured out how to make this work."
+    skip "Does this actually work in normal ruby?"
     with_autoloading_fixtures do
-      # TODO: Module folder needs to be loaded for the subclasses to be autoloaded...
       ModuleFolder::NestedSibling
       sibling = ModuleFolder::NestedClass.class_eval "NestedSibling"
       assert defined?(ModuleFolder::NestedSibling)
@@ -607,13 +606,13 @@ class DependenciesTest < ActiveSupport::TestCase
 
   # TODO: Need to make autoload work after clear
   def test_references_should_work
-    skip "TODO: need to make autoload work after clear"
+    # skip "TODO: need to make autoload work after clear"
     with_loading 'dependencies' do
       c = ActiveSupport::Dependencies.reference("ServiceOne")
       service_one_first = ServiceOne
       assert_equal service_one_first, c.get("ServiceOne")
       ActiveSupport::Dependencies.clear
-      assert_not defined?(ServiceOne)
+      assert_not ActiveSupport::Dependencies.autoloaded?("ServiceOne")
       service_one_second = ServiceOne
       assert_not_equal service_one_first, c.get("ServiceOne")
       assert_equal service_one_second, c.get("ServiceOne")
