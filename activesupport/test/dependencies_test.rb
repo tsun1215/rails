@@ -929,29 +929,26 @@ class DependenciesTest < ActiveSupport::TestCase
     remove_constants(:ClassFolder)
   end
 
-  # NOT SUPPORTED? TODO
   def test_autoload_doesnt_shadow_no_method_error_with_relative_constant
-    skip "Unsure"
     with_autoloading_fixtures do
-      assert !defined?(::RaisesNoMethodError), "::RaisesNoMethodError is defined but it hasn't been referenced yet!"
-      puts "hello"
+      assert !ActiveSupport::Dependencies.autoloaded?("::RaisesNoMethodError"), "::RaisesNoMethodError is defined but it hasn't been referenced yet!"
+      
       2.times do
         assert_raise(NoMethodError) { RaisesNoMethodError }
-        assert !defined?(::RaisesNoMethodError), "::RaisesNoMethodError is defined but it should have failed!"
+        assert !ActiveSupport::Dependencies.autoloaded?("::RaisesNoMethodError"), "::RaisesNoMethodError is defined but it should have failed!"
       end
     end
   ensure
     remove_constants(:RaisesNoMethodError)
   end
 
-  # NOT SUPPORTED
   def test_autoload_doesnt_shadow_no_method_error_with_absolute_constant
-    skip "NOT SUPPORTED"
     with_autoloading_fixtures do
-      assert !defined?(::RaisesNoMethodError), "::RaisesNoMethodError is defined but it hasn't been referenced yet!"
+      assert !ActiveSupport::Dependencies.autoloaded?("::RaisesNoMethodError"), "::RaisesNoMethodError is defined but it hasn't been referenced yet!"
+      
       2.times do
         assert_raise(NoMethodError) { ::RaisesNoMethodError }
-        assert !defined?(::RaisesNoMethodError), "::RaisesNoMethodError is defined but it should have failed!"
+        assert !ActiveSupport::Dependencies.autoloaded?("::RaisesNoMethodError"), "::RaisesNoMethodError is defined but it should have failed!"
       end
     end
   ensure
@@ -1027,14 +1024,13 @@ class DependenciesTest < ActiveSupport::TestCase
     remove_constants(:A)
   end
 
-  # TODO: need to implement autoload_once_paths
   def test_load_once_constants_should_not_be_unloaded
-    skip "TODO: autoload_once_paths"
     old_path = ActiveSupport::Dependencies.autoload_once_paths
     with_autoloading_fixtures do
       ActiveSupport::Dependencies.autoload_once_paths = ActiveSupport::Dependencies.autoload_paths
       _ = ::A # assignment to silence parse-time warning "possibly useless use of :: in void context"
       assert ActiveSupport::Dependencies.autoloaded?("A")
+
       ActiveSupport::Dependencies.clear
       assert ActiveSupport::Dependencies.autoloaded?("A")
     end
@@ -1043,9 +1039,7 @@ class DependenciesTest < ActiveSupport::TestCase
     remove_constants(:A)
   end
 
-  # TODO? NOT SUPPORTED?
   def test_access_unloaded_constants_for_reload
-    skip "Unsure if circular dependency matters anymore"
     with_autoloading_fixtures do
       assert_kind_of Module, A
       assert_kind_of Class, A::B # Necessary to load A::B for the test
