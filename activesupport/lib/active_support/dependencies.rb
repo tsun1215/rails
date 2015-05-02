@@ -215,7 +215,7 @@ module ActiveSupport #:nodoc:
     def generate_const_nesting(paths)
       nesting = {}
       paths.each do |dir|
-        if Dir.exists? dir
+        if Dir.exist? dir
           # Search each directory in paths to load for constants
           Dir.glob(File.join(dir, "**", "*.rb")) do |path|
             loadable_constants_for_path(path.sub(/\.rb\z/, '')).each do |const|
@@ -320,7 +320,7 @@ module ActiveSupport #:nodoc:
         # Clear installed autoloads
         autoload_once_constants = []
         ActiveSupport::Dependencies.autoload_once_paths.each do |dir|
-          if Dir.exists? dir
+          if Dir.exist? dir
             # Search each directory in paths to load for constants
             Dir.glob(File.join(dir, "**", "*.rb")) do |path|
               ActiveSupport::Dependencies.loadable_constants_for_path(path.sub(/\.rb\z/, '')).each do |const|
