@@ -257,41 +257,45 @@ module ActiveSupport #:nodoc:
         const_hash.each do |key, value|
           # Pop path to constant
           path = value.delete(:path)
-          # ActiveSupport::Dependencies.unloadable(key)
           # if value.empty?
           #   # No temporary file necessary to autoload, directly install autoload
           #   Object.autoload(key.to_sym, path)
           # else
-            # Temporary file necessary to autoload
-            file = Tempfile.new(["railsloader",".rb"])
-            # Write the top level module and recurse inward
-            unless path.nil?
-              @autoload_paths << path
-              @pending_autoloads << key
-              # file.write("Kernel.load \"#{path}\"\n") unless path.nil?
-              unless path.nil?
-                file.write("Kernel.autoload :#{key}, \"#{path}\"\n")
-                file.write("#{key}\n")
-              end
-            end
-            file.write("begin\n")
-            file.write("module #{key}\n")
-            add_autoload_recursive(value, file, key, "module")
-            file.write("end\n")
-            
-            # Hacky way to guess between fake module or fake class
-            file.write("rescue TypeError => e\n")
-            file.write("class #{key}\n")
-            add_autoload_recursive(value, file, key, "class")
-            file.write("end\n")
-            file.write("end\n")
+          # Always install a tempfile autoload (above code failes to let us hook 
+          # into the autoload). If we use an tempfile, we can execute some code
+          # when the file gets autoloaded.
 
-            # Load top level module if there exists a file for it
-            file.close()
-            @tempfiles[key] = file
-            # Install autoload for the top-level module with the tempfile
-            Object.autoload(key.to_sym, file.path)
-          # end
+          # TODO: Make the autoloader call watch_namespace to get new constants
+          
+          # Temporary file necessary to autoload
+          file = Tempfile.new(["railsloader",".rb"])
+          # Write the top level module and recurse inward
+          unless path.nil?
+            @autoload_paths << path
+            @pending_autoloads << key
+            # file.write("Kernel.load \"#{path}\"\n") unless path.nil?
+            unless path.nil?
+              file.write("Kernel.autoload :#{key}, \"#{path}\"\n")
+              file.write("#{key}\n")
+            end
+          end
+          file.write("begin\n")
+          file.write("module #{key}\n")
+          add_autoload_recursive(value, file, key, "module")
+          file.write("end\n")
+          
+          # Hacky way to guess between fake module or fake class
+          file.write("rescue TypeError => e\n")
+          file.write("class #{key}\n")
+          add_autoload_recursive(value, file, key, "class")
+          file.write("end\n")
+          file.write("end\n")
+
+          # Load top level module if there exists a file for it
+          file.close()
+          @tempfiles[key] = file
+          # Install autoload for the top-level module with the tempfile
+          Object.autoload(key.to_sym, file.path)
         end
       end
 
