@@ -604,9 +604,7 @@ class DependenciesTest < ActiveSupport::TestCase
     remove_constants(:ServiceOne)
   end
 
-  # TODO: Need to make autoload work after clear
   def test_references_should_work
-    # skip "TODO: need to make autoload work after clear"
     with_loading 'dependencies' do
       c = ActiveSupport::Dependencies.reference("ServiceOne")
       service_one_first = ServiceOne
@@ -637,7 +635,7 @@ class DependenciesTest < ActiveSupport::TestCase
     end
   end
 
-  # TODO: Figure out autoload_once_paths for new version
+  # NOT SUPPORTED: Figure out autoload_once_paths for new version
   def test_autoload_once_paths_do_not_add_to_autoloaded_constants
     skip "Possibly not supported?"
     old_path = ActiveSupport::Dependencies.autoload_once_paths
@@ -656,9 +654,9 @@ class DependenciesTest < ActiveSupport::TestCase
     ActiveSupport::Dependencies.autoload_once_paths = old_path unless old_path.nil?
   end
 
-  # TODO: Need to implement autoload_once_paths (not sure if this fits with kernel#autoload)
+  # NOT SUPPORTED: Need to implement autoload_once_paths (not sure if this fits with kernel#autoload)
   def test_autoload_once_pathnames_do_not_add_to_autoloaded_constants
-    skip "TODO"
+    skip "NOT SUPPORTED"
     with_autoloading_fixtures do
       pathnames = ActiveSupport::Dependencies.autoload_paths.collect{|p| Pathname.new(p)}
       ActiveSupport::Dependencies.autoload_paths = pathnames
@@ -705,9 +703,9 @@ class DependenciesTest < ActiveSupport::TestCase
     remove_constants(:E)
   end
 
-  # TODO
+  # NOT SUPPORTED: No such method load_missing_constant
   def test_constants_in_capitalized_nesting_marked_as_autoloaded
-    skip "Do we still need this?"
+    skip "NOT SUPPORTED"
     with_autoloading_fixtures do
       ActiveSupport::Dependencies.load_missing_constant(HTML, "SomeClass")
 
