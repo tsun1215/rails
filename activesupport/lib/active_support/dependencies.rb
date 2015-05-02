@@ -180,8 +180,8 @@ module ActiveSupport #:nodoc:
     #   autoload :B, "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/b.rb"
     # end
     # 
-    def autoload_modules
-      const_nesting = generate_const_nesting(autoload_paths)
+    def autoload_modules(path=autoload_paths)
+      const_nesting = generate_const_nesting(path)
       temp_file_autoloader.add_autoload(const_nesting)
     end
 
@@ -247,9 +247,9 @@ module ActiveSupport #:nodoc:
       attr_reader :tempfiles
 
       def initialize()
-        @pending_autoloads = []
-        @autoload_paths = []
-        @tempfiles = []
+        @pending_autoloads = Set.new
+        @autoload_paths = Set.new
+        @tempfiles = {}
       end
 
       # Generates and adds the autoloads from a constant hash
@@ -257,7 +257,7 @@ module ActiveSupport #:nodoc:
         const_hash.each do |key, value|
           # Pop path to constant
           path = value.delete(:path)
-          ActiveSupport::Dependencies.unloadable(key)
+          # ActiveSupport::Dependencies.unloadable(key)
           # if value.empty?
           #   # No temporary file necessary to autoload, directly install autoload
           #   Object.autoload(key.to_sym, path)
@@ -268,7 +268,11 @@ module ActiveSupport #:nodoc:
             unless path.nil?
               @autoload_paths << path
               @pending_autoloads << key
-              file.write("Kernel.load \"#{path}\"\n") unless path.nil?
+              # file.write("Kernel.load \"#{path}\"\n") unless path.nil?
+              unless path.nil?
+                file.write("Kernel.autoload :#{key}, \"#{path}\"\n")
+                file.write("#{key}\n")
+              end
             end
             file.write("begin\n")
             file.write("module #{key}\n")
@@ -284,7 +288,7 @@ module ActiveSupport #:nodoc:
 
             # Load top level module if there exists a file for it
             file.close()
-            @tempfiles << file
+            @tempfiles[key] = file
             # Install autoload for the top-level module with the tempfile
             Object.autoload(key.to_sym, file.path)
           # end
@@ -313,12 +317,53 @@ module ActiveSupport #:nodoc:
       end
 
       def clear
-        @autoload_paths.each { |path| $LOADED_FEATURES.delete(path) }
-        @pending_autoloads.each{ |const| Object.send :remove_const, const.split("::")[0] if Object.const_defined?(const.split("::")[0].to_sym)}
-        @tempfiles.each { |file| file.unlink }
-        @tempfiles.clear
+        # Clear installed autoloads
+        autoload_once_constants = []
+        ActiveSupport::Dependencies.autoload_once_paths.each do |dir|
+          if Dir.exists? dir
+            # Search each directory in paths to load for constants
+            Dir.glob(File.join(dir, "**", "*.rb")) do |path|
+              ActiveSupport::Dependencies.loadable_constants_for_path(path.sub(/\.rb\z/, '')).each do |const|
+                  arr = const.split("::") # Splits A::B::C => [A,B,C]
+                  autoload_once_constants << path
+                  qualified_name = ""
+                  arr.each do |x|
+                    if qualified_name.empty?
+                      qualified_name = x 
+                    else
+                      qualified_name = "#{qualified_name}::#{x}"
+                    end
+                    autoload_once_constants << qualified_name
+                  end
+              end
+            end
+          end
+        end
+
+        @autoload_paths.each { |path| $LOADED_FEATURES.delete(path) unless autoload_once_constants.include? path}
+
+        # May not be necessary if we remove the constants in tempfiles
+        # 
+        # @pending_autoloads.each do |const| 
+        #   if !(autoload_once_constants.include? const) && Object.const_defined?(const.split("::")[0].to_sym)
+        #     Object.send :remove_const, const.split("::")[0]
+        #   end
+        # end
+
+        # Clear temporary files
+        @tempfiles.delete_if do |const, file|
+          if !(autoload_once_constants.include? const) && Object.const_defined?(const.split("::")[0].to_sym)
+            Object.send :remove_const, const.split("::")[0]
+          end
+          if autoload_once_constants.include? const
+            false
+          else
+            $LOADED_FEATURES.delete(file.path)
+            file.unlink
+            true
+          end
+        end
         @autoload_paths.clear
-        @pending_autoloads.clear
       end
     end
 
@@ -452,8 +497,6 @@ module ActiveSupport #:nodoc:
       loaded.clear
       loading.clear
       remove_unloadable_constants!
-      temp_file_autoloader.clear
-      autoload_modules
     end
 
     def require_or_load(file_name, const_path = nil)
@@ -605,10 +648,12 @@ module ActiveSupport #:nodoc:
     # as the environment will be in an inconsistent state, e.g. other constants
     # may have already been unloaded and not accessible.
     def remove_unloadable_constants!
+      temp_file_autoloader.clear
       autoloaded_constants.each { |const| remove_constant const }
       autoloaded_constants.clear
       Reference.clear!
       explicitly_unloadable_constants.each { |const| remove_constant const }
+      autoload_modules(autoload_paths - autoload_once_paths)
     end
 
     class ClassCache
