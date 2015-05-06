@@ -161,15 +161,15 @@ module ActiveSupport #:nodoc:
     self.constant_watch_stack = WatchStack.new
 
 
-    # Autoloads all modules in autoload_paths. For modules with an explicit 
-    # class name and no nested classes across other files, the module is 
-    # autoloaded with Ruby's built-in autoload functionality. If there are 
-    # nested files, a temporary file with the correct nesting is created to 
+    # Autoloads all modules in autoload_paths. For modules with an explicit
+    # class name and no nested classes across other files, the module is
+    # autoloaded with Ruby's built-in autoload functionality. If there are
+    # nested files, a temporary file with the correct nesting is created to
     # facilitate the autoloading of all files within that structure.
-    # 
-    # For example, in test/autoloading_fixtures, the constants nested under a/ 
+    #
+    # For example, in test/autoloading_fixtures, the constants nested under a/
     # generates the file:
-    # 
+    #
     # module A
     #   module C
     #     autoload :D, "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/c/d.rb"
@@ -179,17 +179,17 @@ module ActiveSupport #:nodoc:
     #   end
     #   autoload :B, "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/b.rb"
     # end
-    # 
+    #
     def autoload_modules(path=autoload_paths)
       const_nesting = generate_const_nesting(path)
       temp_file_autoloader.add_autoload(const_nesting)
     end
 
     # Generates a hash of of the given set of paths.
-    # 
+    #
     # For example, in test/autoloading_fixture, the constants nested under a/
     # generates the hash:
-    # 
+    #
     # "A"=> {
     #   :path=>nil,
     #   "C"=> {
@@ -211,7 +211,7 @@ module ActiveSupport #:nodoc:
     #       "/home/tsun/projects/rails/activesupport/test/autoloading_fixtures/a/b.rb"
     #   }
     # }
-    # 
+    #
     def generate_const_nesting(paths)
       nesting = {}
       paths.each do |dir|
@@ -250,6 +250,15 @@ module ActiveSupport #:nodoc:
         @pending_autoloads = Set.new
         @autoload_paths = Set.new
         @tempfiles = {}
+        @constant_watch_stack = WatchStack.new
+      end
+
+      def prepare_autoload(const, path)
+        @constant_watch_stack.watch_namespaces [const]
+      end
+
+      def process_autoload(const, path)
+        puts "New Constants: #{@constant_watch_stack.new_constants}"
       end
 
       # Generates and adds the autoloads from a constant hash
@@ -261,12 +270,12 @@ module ActiveSupport #:nodoc:
           #   # No temporary file necessary to autoload, directly install autoload
           #   Object.autoload(key.to_sym, path)
           # else
-          # Always install a tempfile autoload (above code failes to let us hook 
+          # Always install a tempfile autoload (above code failes to let us hook
           # into the autoload). If we use an tempfile, we can execute some code
           # when the file gets autoloaded.
 
           # TODO: Make the autoloader call watch_namespace to get new constants
-          
+
           # Temporary file necessary to autoload
           file = Tempfile.new(["railsloader",".rb"])
           # Write the top level module and recurse inward
@@ -275,15 +284,19 @@ module ActiveSupport #:nodoc:
             @pending_autoloads << key
             # file.write("Kernel.load \"#{path}\"\n") unless path.nil?
             unless path.nil?
+              file.write("ActiveSupport::Dependencies.temp_file_autoloader.prepare_autoload" +
+                         " :#{key}, \"#{path}\"\n")
               file.write("Kernel.autoload :#{key}, \"#{path}\"\n")
               file.write("#{key}\n")
+              file.write("ActiveSupport::Dependencies.temp_file_autoloader.process_autoload" +
+                         " :#{key}, \"#{path}\"\n")
             end
           end
           file.write("begin\n")
           file.write("module #{key}\n")
           add_autoload_recursive(value, file, key, "module")
           file.write("end\n")
-          
+
           # Hacky way to guess between fake module or fake class
           file.write("rescue TypeError => e\n")
           file.write("class #{key}\n")
@@ -304,7 +317,7 @@ module ActiveSupport #:nodoc:
         const_hash.each do |key, value|
           next if key == :path
           qualified_name = "#{qualified_name}::#{key}"
-          path = value[:path]    
+          path = value[:path]
           if !path.nil?
             @pending_autoloads << qualified_name
             file.write("autoload :#{key}, \"#{path}\"\n")
@@ -333,7 +346,7 @@ module ActiveSupport #:nodoc:
                   qualified_name = ""
                   arr.each do |x|
                     if qualified_name.empty?
-                      qualified_name = x 
+                      qualified_name = x
                     else
                       qualified_name = "#{qualified_name}::#{x}"
                     end
@@ -347,8 +360,8 @@ module ActiveSupport #:nodoc:
         @autoload_paths.each { |path| $LOADED_FEATURES.delete(path) unless autoload_once_constants.include? path}
 
         # May not be necessary if we remove the constants in tempfiles
-        # 
-        # @pending_autoloads.each do |const| 
+        #
+        # @pending_autoloads.each do |const|
         #   if !(autoload_once_constants.include? const) && Object.const_defined?(const.split("::")[0].to_sym)
         #     Object.send :remove_const, const.split("::")[0]
         #   end
