@@ -258,7 +258,7 @@ module ActiveSupport #:nodoc:
       end
 
       def process_autoload(const, path)
-        puts "New Constants: #{@constant_watch_stack.new_constants}"
+        ActiveSupport::Dependencies.autoloaded_constants += @constant_watch_stack.new_constants
       end
 
       # Generates and adds the autoloads from a constant hash

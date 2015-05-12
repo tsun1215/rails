@@ -1,5 +1,5 @@
 *   `ActiveSupport::Dependencies` now uses `Module#autoload` for autoloading
-    
+
     Autoloading no longer depends on the old const_missing hook. Instead
     they are done through installing autoloads for modules that load
     (temporary) intermediate files. The intermediate files handle the structure
@@ -8,11 +8,11 @@
     Currently, no initializer is hooked up to the actual Rails project, but
     the entry point to load the modules is `AS:Dep#autoload_modules`.
 
-    In the test suite, some tests are suite that are skipped. Many of these 
+    In the test suite, some tests are suite that are skipped. Many of these
     were deemed "NOT SUPPORTED", but there are some tests that do not pass
     and should work in a final implementation.
 
-    *Terence Sun*, *Michael Probber*
+    *Terence Sun*, *Michael Probber*, *Yasyf Mohamedali*
 
 *   Encoding ActiveSupport::TimeWithZone to YAML now preserves the timezone information.
 
